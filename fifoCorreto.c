@@ -11,13 +11,13 @@
 typedef struct {
     int page_number;
     int frame_number;
-} TLBEntry;
+    int last_used;
+} PageTableEntry;
 
 typedef struct {
     int page_number;
     int frame_number;
-    int last_used;
-} PageTableEntry;
+} TLBEntry;
 
 TLBEntry tlb[TLB_SIZE];
 PageTableEntry page_table[PAGE_TABLE_SIZE];
@@ -71,13 +71,6 @@ int search_page_table(int page_number) {
     return -1;
 }
 
-void add_to_page_table_fifo(int page_number, int frame_number) {
-    page_table[page_table_index].page_number = page_number;
-    page_table[page_table_index].frame_number = frame_number;
-    page_table[page_table_index].last_used = current_time++;
-    page_table_index = (page_table_index + 1) % PAGE_TABLE_SIZE;
-}
-
 void add_to_page_table_lru(int page_number, int frame_number) {
     int lru_index = 0;
     for (int i = 1; i < PAGE_TABLE_SIZE; i++) {
@@ -124,9 +117,15 @@ void translate_addresses(const char *address_file, const char *algorithm) {
             if (frame_number == -1) {
                 page_faults++;
                 frame_number = get_free_frame();
+                if (frame_number >= PAGE_TABLE_SIZE) {
+                    frame_number = frame_number % PAGE_TABLE_SIZE;
+                }
                 read_from_backing_store(page_number, buffer);
                 if (strcmp(algorithm, "fifo") == 0) {
-                    add_to_page_table_fifo(page_number, frame_number);
+                    page_table[page_table_index].page_number = page_number;
+                    page_table[page_table_index].frame_number = frame_number;
+                    page_table[page_table_index].last_used = current_time++;
+                    page_table_index = (page_table_index + 1) % PAGE_TABLE_SIZE;
                 } else if (strcmp(algorithm, "lru") == 0) {
                     add_to_page_table_lru(page_number, frame_number);
                 }
@@ -135,6 +134,14 @@ void translate_addresses(const char *address_file, const char *algorithm) {
             }
             add_to_tlb(page_number, frame_number, &tlb_position);
         } else {
+            if (strcmp(algorithm, "lru") == 0) {
+                for (int i = 0; i < PAGE_TABLE_SIZE; i++) {
+                    if (page_table[i].page_number == page_number) {
+                        page_table[i].last_used = current_time++;
+                        break;
+                    }
+                }
+            }
             read_from_backing_store(page_number, buffer);
             tlb_hits++;
         }
